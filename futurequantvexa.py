@@ -631,16 +631,25 @@ def generate_signals(candles, pair_name):
     return all_signals
 
 
-def print_signals(signals):
-    """Print signals sorted by datetime (mixed pairs, sorted by time)."""
+def print_signals(signals, tz_offset=0):
+    """Print signals sorted by datetime (mixed pairs, sorted by time).
+    
+    Args:
+        signals: List of signal dicts
+        tz_offset: Timezone offset in hours from UTC (e.g. +1 for UTC+1)
+    """
     if not signals:
         print("\n  ⚠ No elite signals found in the provided data files.")
         print("    Make sure the data contains candles for weekdays that match")
         print("    the elite pattern database (Sun/Mon/Tue/Wed/Thu/Fri/Sat).")
         return
     
+    from datetime import timedelta
+    
     # Sort by timestamp (ascending = chronological order)
     signals.sort(key=lambda s: s['timestamp'])
+    
+    tz_label = f"UTC+{tz_offset}" if tz_offset >= 0 else f"UTC{tz_offset}"
     
     # ── Telegram-style channel output ──
     # Format: M1 PAIR-OTC HH:MM CALL/PUT
@@ -648,7 +657,8 @@ def print_signals(signals):
     print("━" * 7 + " • " + "━" * 7)
     
     for s in signals:
-        dt = datetime.fromtimestamp(s['timestamp'], tz=timezone.utc)
+        # Apply timezone offset
+        dt = datetime.fromtimestamp(s['timestamp'], tz=timezone.utc) + timedelta(hours=tz_offset)
         time_str = dt.strftime('%H:%M')
         pair_str = f"{s['pair']}-OTC"
         direction = "CALL" if s['direction'] == 'BUY' else "PUT"
@@ -657,19 +667,24 @@ def print_signals(signals):
     print("━" * 7 + " • " + "━" * 7)
     print(f"\n  Total: {len(signals)} signals | CALL={sum(1 for s in signals if s['direction']=='BUY')} | PUT={sum(1 for s in signals if s['direction']=='SELL')}")
     print(f"  Strategy: Entry 1 → MTG1 → STOP | Max loss: 3× stake")
+    print(f"  Timezone: {tz_label} (offset: {'+' if tz_offset >= 0 else ''}{tz_offset}h from UTC)")
     print()
     
     # ── Detailed table (for reference) ──
     print(f"\n{'='*120}")
-    print(f"  Detailed Signal Report ({len(signals)} signals, sorted by time)")
+    print(f"  Detailed Signal Report ({len(signals)} signals, sorted by time, {tz_label})")
     print(f"{'='*120}")
     print(f"\n  {'#':<4} {'Datetime':<22} {'Pair':<9} {'Pattern':<12} {'Dir':<5} {'Day':<4} {'C1':>7} {'C1+C2':>8} {'Profit':>8} {'Entry':<10}")
     print(f"  {'-'*108}")
     
     for i, s in enumerate(signals, 1):
+        from datetime import timedelta
+        dt = datetime.fromtimestamp(s['timestamp'], tz=timezone.utc) + timedelta(hours=tz_offset)
+        dt_str = dt.strftime('%Y-%m-%d %H:%M:%S')
+        
         dir_color = '\033[32m' if s['direction'] == 'BUY' else '\033[31m'
         reset = '\033[0m'
-        print(f"  {i:<4} {s['datetime']:<22} {s['pair']:<9} {s['pattern']:<12} "
+        print(f"  {i:<4} {dt_str:<22} {s['pair']:<9} {s['pattern']:<12} "
               f"{dir_color}{s['direction']:<5}{reset} {s['weekday']:<4} "
               f"{s['historical_c1']:>7} {s['historical_c1_c2']:>8} {s['net_profit']:>8} {s['entry_candle']:<10}")
     
@@ -677,6 +692,7 @@ def print_signals(signals):
     print(f"  Total: {len(signals)} signals | Max loss per signal: 3× stake (Entry 1: 1× + MTG1: 2×)")
     print(f"  Strategy: Entry 1 → if lost, MTG1 (same direction, 2× stake) → STOP")
     print(f"  No Entry 3 or Entry 4 — MTG1 is the final recovery entry.")
+    print(f"  Timezone: {tz_label}")
     print()
 
 
@@ -711,13 +727,41 @@ def main():
     print("=" * 80)
     print()
     
-    if len(sys.argv) < 2:
-        print("  Usage: python futurequantvexa.py <file1.json> [file2.json ...]")
+    # Parse arguments: files + optional --tz offset
+    tz_offset = 0
+    files = []
+    args = sys.argv[1:]
+    
+    for arg in args:
+        if arg.startswith('--tz='):
+            try:
+                tz_offset = int(arg.split('=')[1])
+            except ValueError:
+                print(f"  ⚠ Invalid timezone offset: {arg}")
+                sys.exit(1)
+        elif arg.startswith('--'):
+            if arg == '--help' or arg == '-h':
+                print("  Usage: python futurequantvexa.py <file1.json> [file2.json ...] [--tz=OFFSET]")
+                print()
+                print("  Options:")
+                print("    --tz=OFFSET   Timezone offset from UTC (e.g. --tz=1 for UTC+1)")
+                print("                  Default: 0 (UTC)")
+                print()
+                print("  Examples:")
+                print("    python futurequantvexa.py USDDZD_otc_1m_10d_xxx.json")
+                print("    python futurequantvexa.py *.json --tz=1")
+                print("    python futurequantvexa.py pair1.json pair2.json --tz=-5")
+                sys.exit(0)
+        else:
+            files.append(arg)
+    
+    if not files:
+        print("  Usage: python futurequantvexa.py <file1.json> [file2.json ...] [--tz=OFFSET]")
         print()
         print("  Examples:")
         print("    python futurequantvexa.py USDDZD_otc_1m_10d_xxx.json")
-        print("    python futurequantvexa.py *.json")
-        print("    python futurequantvexa.py pair1.json pair2.json pair3.json")
+        print("    python futurequantvexa.py *.json --tz=1      # UTC+1 timezone")
+        print("    python futurequantvexa.py pair1.json pair2.json --tz=-5  # UTC-5")
         print()
         print("  Output:")
         print("    - Console table with signals sorted by datetime")
@@ -725,7 +769,8 @@ def main():
         print()
         sys.exit(1)
     
-    files = sys.argv[1:]
+    tz_label = f"UTC+{tz_offset}" if tz_offset >= 0 else f"UTC{tz_offset}"
+    print(f"  Timezone: {tz_label}")
     print(f"  Loading {len(files)} file(s)...")
     print()
     
@@ -750,7 +795,7 @@ def main():
             print(f"ERROR: {e}")
     
     print()
-    print_signals(all_signals)
+    print_signals(all_signals, tz_offset=tz_offset)
     save_csv(all_signals)
     
     if all_signals:
