@@ -642,8 +642,26 @@ def print_signals(signals):
     # Sort by timestamp (ascending = chronological order)
     signals.sort(key=lambda s: s['timestamp'])
     
+    # ── Telegram-style channel output ──
+    # Format: M1 PAIR-OTC HH:MM CALL/PUT
+    print()
+    print("━" * 7 + " • " + "━" * 7)
+    
+    for s in signals:
+        dt = datetime.fromtimestamp(s['timestamp'], tz=timezone.utc)
+        time_str = dt.strftime('%H:%M')
+        pair_str = f"{s['pair']}-OTC"
+        direction = "CALL" if s['direction'] == 'BUY' else "PUT"
+        print(f"M1 {pair_str} {time_str} {direction}")
+    
+    print("━" * 7 + " • " + "━" * 7)
+    print(f"\n  Total: {len(signals)} signals | CALL={sum(1 for s in signals if s['direction']=='BUY')} | PUT={sum(1 for s in signals if s['direction']=='SELL')}")
+    print(f"  Strategy: Entry 1 → MTG1 → STOP | Max loss: 3× stake")
+    print()
+    
+    # ── Detailed table (for reference) ──
     print(f"\n{'='*120}")
-    print(f"  FutureQuantVexa — Signal Report ({len(signals)} signals, sorted by time)")
+    print(f"  Detailed Signal Report ({len(signals)} signals, sorted by time)")
     print(f"{'='*120}")
     print(f"\n  {'#':<4} {'Datetime':<22} {'Pair':<9} {'Pattern':<12} {'Dir':<5} {'Day':<4} {'C1':>7} {'C1+C2':>8} {'Profit':>8} {'Entry':<10}")
     print(f"  {'-'*108}")
